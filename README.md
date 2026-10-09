@@ -10,6 +10,7 @@ A file explorer for Android, in Kotlin and Jetpack Compose with Material 3: dark
 - Create folders.
 - Search the current folder and everything below it.
 - Open any file in a matching app (shared through a `FileProvider`).
+- Tap an APK to install it. The first time, Android asks you to allow installs from Files; the system then shows its usual confirmation, and the result appears at the bottom of the screen.
 
 It asks for **All files access** on Android 11 and later, and for the usual storage permissions on 8–10.
 

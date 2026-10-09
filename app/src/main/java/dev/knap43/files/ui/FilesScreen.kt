@@ -1,5 +1,9 @@
 package dev.knap43.files.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -97,14 +101,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.knap43.files.FilesViewModel
 import dev.knap43.files.UiState
+import dev.knap43.files.data.ApkInstaller
 import dev.knap43.files.data.FileItem
 import dev.knap43.files.data.FileKind
 import dev.knap43.files.data.FileOps
 import dev.knap43.files.data.SortMode
+import dev.knap43.files.data.isApk
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
@@ -114,6 +122,7 @@ private sealed interface Dialog {
     data object NewFolder : Dialog
     data class Rename(val file: File) : Dialog
     data class Delete(val files: List<File>) : Dialog
+    data class AllowInstalls(val apk: File) : Dialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,6 +135,32 @@ fun FilesScreen(vm: FilesViewModel = viewModel()) {
     var dialog by remember { mutableStateOf<Dialog?>(null) }
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(Unit) { ApkInstaller.results.collect { snackbar.showSnackbar(it) } }
+
+    // APK installs: the file waiting on "Install unknown apps", and whether one is being prepared.
+    var awaitingPermission by remember { mutableStateOf<File?>(null) }
+    var installing by remember { mutableStateOf(false) }
+    val install: (File) -> Unit = { apk ->
+        if (!ApkInstaller.canInstall(context)) {
+            dialog = Dialog.AllowInstalls(apk)
+        } else if (!installing) {
+            installing = true
+            scope.launch {
+                try {
+                    ApkInstaller.install(context, apk)
+                } catch (e: Exception) {
+                    snackbar.showSnackbar("Couldn't install “${apk.name}”: ${e.message ?: e.javaClass.simpleName}")
+                } finally {
+                    installing = false
+                }
+            }
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val apk = awaitingPermission ?: return@LifecycleEventEffect
+        awaitingPermission = null
+        if (ApkInstaller.canInstall(context)) install(apk)
+    }
 
     val listState = remember(state.current.absolutePath) { LazyListState(vm.scrollFor(state.current)) }
     val navigate: (File) -> Unit = { dir ->
@@ -136,6 +171,8 @@ fun FilesScreen(vm: FilesViewModel = viewModel()) {
         if (item.isDir) {
             if (state.searchQuery != null) vm.closeSearch()
             navigate(item.file)
+        } else if (item.file.isApk()) {
+            install(item.file)
         } else if (!context.openFile(item.file)) {
             scope.launch { snackbar.showSnackbar("No app can open “${item.name}”") }
         }
@@ -187,7 +224,7 @@ fun FilesScreen(vm: FilesViewModel = viewModel()) {
                     )
                 }
                 if (!searching) Breadcrumbs(state, vm, onNavigate = navigate)
-                val showProgress = state.busy != null || state.loading || state.searching
+                val showProgress = state.busy != null || state.loading || state.searching || installing
                 Box(Modifier.fillMaxWidth().height(2.dp)) {
                     if (showProgress) LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
@@ -255,6 +292,32 @@ fun FilesScreen(vm: FilesViewModel = viewModel()) {
                 TextButton(onClick = { vm.delete(d.files); dialog = null }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
+            },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } },
+        )
+        is Dialog.AllowInstalls -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            icon = { Icon(Icons.Rounded.Android, null) },
+            title = { Text("Allow installing apps?") },
+            text = {
+                Text(
+                    "To install “${d.apk.name}”, turn on “Allow from this source” for Files. " +
+                        "The installation continues when you come back.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    dialog = null
+                    awaitingPermission = d.apk
+                    try {
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")),
+                        )
+                    } catch (_: ActivityNotFoundException) {
+                        awaitingPermission = null
+                        scope.launch { snackbar.showSnackbar("This device has no setting for installing apps") }
+                    }
+                }) { Text("Open settings") }
             },
             dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } },
         )
