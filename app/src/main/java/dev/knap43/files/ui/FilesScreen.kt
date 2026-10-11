@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.SdCard
@@ -113,10 +114,11 @@ import dev.knap43.files.data.FileKind
 import dev.knap43.files.data.FileOps
 import dev.knap43.files.data.SortMode
 import dev.knap43.files.data.isApk
-import kotlinx.coroutines.launch
+import dev.knap43.files.ui.theme.AppearanceDialog
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.launch
 
 private sealed interface Dialog {
     data object NewFolder : Dialog
@@ -348,6 +350,8 @@ private fun BrowseBar(
 ) {
     var sortOpen by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var appearanceOpen by remember { mutableStateOf(false) }
+    if (appearanceOpen) AppearanceDialog(onDismiss = { appearanceOpen = false })
     TopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold) },
         navigationIcon = {
@@ -393,6 +397,11 @@ private fun BrowseBar(
                             Icon(if (state.showHidden) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null)
                         },
                         onClick = { moreOpen = false; onToggleHidden() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Appearance") },
+                        leadingIcon = { Icon(Icons.Rounded.Palette, null) },
+                        onClick = { moreOpen = false; appearanceOpen = true },
                     )
                     if (state.roots.size > 1) {
                         HorizontalDivider()
